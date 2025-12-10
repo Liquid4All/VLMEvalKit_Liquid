@@ -1974,7 +1974,7 @@ qianfanvl_series = {
 }
 
 lfm2vl_series = {
-    "LFM2-VL-450M": partial(LFM2VL, model_path="LiquidAI/LFM2-VL-450M"),
+    "LFM2-VL-450M": partial(LFM2VL, model_path="LiquidAI/LFM2-VL-450M", use_vllm=True),
     "LFM2-VL-1.6B": partial(LFM2VL, model_path="LiquidAI/LFM2-VL-1.6B"),
     "LFM2-VL-3B": partial(LFM2VL, model_path="LiquidAI/LFM2-VL-3B"),
 }

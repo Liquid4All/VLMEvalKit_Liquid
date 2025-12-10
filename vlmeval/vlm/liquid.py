@@ -2,7 +2,7 @@ from .base import BaseModel
 import torch
 from PIL import Image
 from transformers import AutoProcessor, AutoModelForImageTextToText
-
+import os
 
 class LFM2VL(BaseModel):
     def __init__(self, model_path, **kwargs):
@@ -11,15 +11,28 @@ class LFM2VL(BaseModel):
             "do not give any explanation."
         )
         self.processor = AutoProcessor.from_pretrained(model_path)
-        self.model = (
-            AutoModelForImageTextToText.from_pretrained(
-                model_path,
-                attn_implementation="flash_attention_2",
-                torch_dtype=torch.bfloat16,
+
+        self.use_vllm = kwargs.get('use_vllm', False)
+        os.environ['VLLM_WORKER_MULTIPROC_METHOD'] = 'spawn'
+        if self.use_vllm:
+            from vllm import LLM
+            self.llm = LLM(
+                model=model_path,
+                max_num_seqs=8,
+                seed=0,
+                gpu_memory_utilization=kwargs.get("gpu_utils", 0.9),
+                trust_remote_code=True,
             )
-            .cuda()
-            .eval()
-        )
+        else:
+            self.model = (
+                AutoModelForImageTextToText.from_pretrained(
+                    model_path,
+                    attn_implementation="flash_attention_2",
+                    torch_dtype=torch.bfloat16,
+                )
+                .cuda()
+                .eval()
+            )
 
         kwargs_default = {"max_new_tokens": 1024, "use_cache": True}
         kwargs_default.update(kwargs)
@@ -61,7 +74,7 @@ class LFM2VL(BaseModel):
 
         return chat_messages, images_pil
 
-    def generate_inner(self, message, dataset=None):
+    def generate_inner_transformers(self, message, dataset=None):
         instruction_prompt = self.custom_instruction_prompt_by_dataset(dataset)
 
         chat_messages, images = self.message_to_chat_messages(message, instruction_prompt, dataset)
@@ -80,6 +93,34 @@ class LFM2VL(BaseModel):
         if assistant_response.endswith("<|im_end|>"):
             assistant_response = assistant_response[:-10]
         return assistant_response
+    
+    def generate_inner_vllm(self, message, dataset=None):
+        from vllm import SamplingParams
+        instruction_prompt = self.custom_instruction_prompt_by_dataset(dataset)
+
+        chat_messages, images = self.message_to_chat_messages(message, instruction_prompt, dataset)
+
+        sampling_params = SamplingParams(
+            max_tokens=self.kwargs["max_new_tokens"],
+        )
+
+        chat_inputs = self.processor.apply_chat_template(chat_messages, add_generation_prompt=True, tokenize=False)
+        mm_data ={}
+        mm_data['image'] = images
+        req = {'prompt': chat_inputs}
+        req['multi_modal_data'] = mm_data
+        outputs = self.llm.generate([req], sampling_params=sampling_params)
+        for o in outputs:
+            generated_text = o.outputs[0].text
+
+        return generated_text
+    
+    def generate_inner(self, message, dataset=None):
+        if self.use_vllm:
+            return self.generate_inner_vllm(message, dataset=dataset)
+        else:
+            return self.generate_inner_transformers(message, dataset=dataset)
+
 
     def chat_inner(self, message, dataset=None):
         return self.generate_inner(message, dataset)
