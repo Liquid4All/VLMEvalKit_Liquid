@@ -102,6 +102,7 @@ class LFM2VL(BaseModel):
 
         sampling_params = SamplingParams(
             max_tokens=self.kwargs["max_new_tokens"],
+            temperature=0.0
         )
 
         chat_inputs = self.processor.apply_chat_template(chat_messages, add_generation_prompt=True, tokenize=False)
